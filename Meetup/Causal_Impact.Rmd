@@ -1,0 +1,284 @@
+---
+title: "Causal Impact Demonstration"
+author: "Polly Ramsey Mangan"
+date: "May 18, 2016"
+output:
+  html_document:
+      theme: cosmo
+---
+
+**CausalImpact** is an R package for determining Causal Inference using Bayesian structural time-series models. It was developed by Kay H. Brodersen, a data scientist at Google.
+
+The package aims at determining the effect of a designed intervention on a time series. Many web initiatives can only be measured using an activation date, as opposed to a variable that persists for the entire timeline, like dollars spent. This model creates a Bayesian structural time-series model on the pre-intervention timeline based on a set of control time series, and forcasts this model to estimate how the response variable would change if the intervention never happened. This forecast is then compared to the actual post-intervention response varaibles to quantify the impact of the intervention.
+
+More information and usage instructions can be found on [Google's Github page](https://google.github.io/CausalImpact/CausalImpact.html).
+
+This demonstration uses the CausalImpact package to measure the impact of one particular web initiative, *Program P*, on a select group of business websites. All data have been obfuscated for presentation purposes.
+
+# Initialize
+
+Install and load CausalImpact as well as other necessary packages.
+
+```{r setup, echo = TRUE, results='hide', warning = FALSE, message = FALSE}
+
+# Install and load package requred to clone directly from Github
+#install.packages("devtools")
+#library(devtools)
+
+# Install and load CausalImpact package
+#devtools::install_github("google/CausalImpact")
+library(CausalImpact)
+
+# Load all other necessary packages
+set.seed(1986)
+library(dplyr)
+library(ggplot2)
+
+```
+
+# Load Dataset
+
+The dataset is currently set up as two files. One file holds the web data for each account (organic visits as well as money spent on various web marketing channels), and the other contains only the *Program P* start dates.
+
+For privacy purposes, all website names and dates have been changed and all visit and spend data have been obfuscated.
+
+```{r readdata, echo = TRUE, warning = FALSE, message = FALSE}
+
+# Read in web data
+webdata <- read.csv(file = "~/Meetup/Web_data.csv", stringsAsFactors = FALSE)
+webdata$weekEnding <- as.Date(webdata$weekEnding, format = "%m/%d/%y")
+head(filter(webdata, accountName == "happyAlpaca"))
+
+# Read in Program P start dates
+startdates <- read.csv(file = "~/Meetup/Start_dates.csv", stringsAsFactors = FALSE)
+startdates$startDate <- as.Date(startdates$startDate, format = "%m/%d/%y")
+startdates
+
+```
+
+Included in the dataset are four different websites, which will each be analyzed separately.
+
+# Website 1: happyAlpaca.com
+
+First, filter the dataset so it only includes the information for the website we are currently interested in.
+
+```{r filterA, echo = TRUE, warning = FALSE, message = FALSE}
+
+acctname_sample <- "happyAlpaca"
+
+webdata_sample  <- webdata %>%
+  filter(accountName == acctname_sample)
+
+startdate <- startdates$startDate[startdates$accountName == acctname_sample]
+
+```
+
+The next step is to visualize the data we have to get an understanding of the account and how the web metrics changed throughout the timeline.
+
+```{r visA, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10}
+
+ggplot(webdata_sample, aes(x = weekEnding)) +
+  geom_line(aes(y = paidSearchCost, col = " Paid Search Spend"), size = .75) +
+  geom_line(aes(y = displayCost, col = "Display Spend"), size = .75) +
+  geom_line(aes(y = premiumDisplayCost, col = "Premium Display Spend"), size = .75) +
+  geom_line(aes(y = remarketingCost, col = "Remarketing Spend"), size = .75) +
+  geom_line(aes(y = organicVisits, col = " Organic Visits"), size = 1.5) +
+  geom_vline(xintercept = as.numeric(startdate), linetype = 4, col = "gray25") +
+  theme_bw() +
+  labs(x = "Date", 
+       y = "Quantity (number of visits or $)", 
+       title = paste0("Web data for ", acctname_sample, ".com")) +
+  scale_color_manual(name = "Values", 
+                     values = c(" Organic Visits"       = "black",
+                                " Paid Search Spend"    = "forestgreen",
+                                "Display Spend"         = "orange1",
+                                "Premium Display Spend" = "orange3",
+                                "Remarketing Spend"     = "orange4"))
+
+```
+
+For this website, the online advertising costs stay relatively constant throughout the entire timeline, and there is a noticeable increase in organic visits after the *Program P* intervention. In this case it is pretty clear without using Causal Impact that *Program P* has increased organic traffic, but statistical analysis will confirm the hypothesis.
+
+```{r causalA, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 8}
+
+# Convert to Zoo series - a great format for time series expecially if the observations are irregular
+webdata_sample <- zoo(x = webdata_sample[ , c("organicVisits", "paidSearchCost", "displayCost",
+                                              "premiumDisplayCost", "remarketingCost")],
+                      order.by = webdata_sample[ , "weekEnding"])
+
+# Create "Pre-period" and "Post-period" timelines to be inputted in the Causal Impact function
+# Now that webdata_sample is a Zoo object we can utilize the start() and end() functions
+pre.period  <- as.Date(c(start(webdata_sample), startdate - 1))
+post.period <- as.Date(c(startdate, end(webdata_sample)))
+
+# Run Causal Impact
+impact      <- CausalImpact(webdata_sample, pre.period, post.period)
+   # Seasonality component can be added to the model using the model argument nseasons if applicable
+
+# Plot results
+plot(impact)
+
+```
+
+This visualization is great for giving a high-level report on if *Program P* worked for this website or not. In addition, all of the Bayesian model specifications and results are available using the Causal Impact package.
+
+```{r causalcontA, echo = TRUE, warning = FALSE, message = FALSE}
+
+## Print numerical summary of analysis
+summary(impact)
+
+## Print out full text-based report
+summary(impact, "report")
+
+## Print table with model values
+impact$summary
+
+```
+
+# Website 2: elatedBaboon.com
+
+```{r filterB, echo = TRUE, warning = FALSE, message = FALSE}
+
+acctname_sample <- "elatedBaboon"
+webdata_sample  <- webdata %>%
+  filter(accountName == acctname_sample)
+startdate <- startdates$startDate[startdates$accountName == acctname_sample]
+
+```
+
+```{r visB, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10}
+
+ggplot(webdata_sample, aes(x = weekEnding)) +
+  geom_line(aes(y = paidSearchCost, col = " Paid Search Spend"), size = .75) +
+  geom_line(aes(y = displayCost, col = "Display Spend"), size = .75) +
+  geom_line(aes(y = premiumDisplayCost, col = "Premium Display Spend"), size = .75) +
+  geom_line(aes(y = remarketingCost, col = "Remarketing Spend"), size = .75) +
+  geom_line(aes(y = organicVisits, col = " Organic Visits"), size = 1.5) +
+  geom_vline(xintercept = as.numeric(startdate), linetype = 4, col = "gray25") +
+  theme_bw() +
+  labs(x = "Date", 
+       y = "Quantity (number of visits or $)", 
+       title = paste0("Web data for ", acctname_sample, ".com")) +
+  scale_color_manual(name = "Values", 
+                     values = c(" Organic Visits"       = "black",
+                                " Paid Search Spend"    = "forestgreen",
+                                "Display Spend"         = "orange1",
+                                "Premium Display Spend" = "orange3",
+                                "Remarketing Spend"     = "orange4"))
+
+```
+
+```{r causalB, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 8}
+
+webdata_sample <- zoo(x = webdata_sample[ , c("organicVisits", "paidSearchCost", "displayCost",
+                                              "premiumDisplayCost", "remarketingCost")],
+                      order.by = webdata_sample[ , "weekEnding"])
+pre.period  <- as.Date(c(start(webdata_sample), startdate - 1))
+post.period <- as.Date(c(startdate, end(webdata_sample)))
+impact      <- CausalImpact(webdata_sample, pre.period, post.period)
+plot(impact)
+
+```
+
+This website is less consistent with their Paid Search and Display advertising, so it is not as clear from the first visualization if *Program P* had a meaningful impact. However, the Causal Impact visualization makes the effect very clear and the causal effect is statistically significant.
+
+# Website 3: peacefulCamel.com
+
+```{r filterC, echo = TRUE, warning = FALSE, message = FALSE}
+
+acctname_sample <- "peacefulCamel"
+webdata_sample  <- webdata %>%
+  filter(accountName == acctname_sample)
+startdate <- startdates$startDate[startdates$accountName == acctname_sample]
+
+```
+
+```{r visC, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10}
+
+ggplot(webdata_sample, aes(x = weekEnding)) +
+  geom_line(aes(y = paidSearchCost, col = " Paid Search Spend"), size = .75) +
+  geom_line(aes(y = displayCost, col = "Display Spend"), size = .75) +
+  geom_line(aes(y = premiumDisplayCost, col = "Premium Display Spend"), size = .75) +
+  geom_line(aes(y = remarketingCost, col = "Remarketing Spend"), size = .75) +
+  geom_line(aes(y = organicVisits, col = " Organic Visits"), size = 1.5) +
+  geom_vline(xintercept = as.numeric(startdate), linetype = 4, col = "gray25") +
+  theme_bw() +
+  labs(x = "Date", 
+       y = "Quantity (number of visits or $)", 
+       title = paste0("Web data for ", acctname_sample, ".com")) +
+  scale_color_manual(name = "Values", 
+                     values = c(" Organic Visits"       = "black",
+                                " Paid Search Spend"    = "forestgreen",
+                                "Display Spend"         = "orange1",
+                                "Premium Display Spend" = "orange3",
+                                "Remarketing Spend"     = "orange4"))
+
+```
+
+```{r causalC, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 8}
+
+webdata_sample <- zoo(x = webdata_sample[ , c("organicVisits", "paidSearchCost", "displayCost",
+                                              "premiumDisplayCost", "remarketingCost")],
+                      order.by = webdata_sample[ , "weekEnding"])
+pre.period  <- as.Date(c(start(webdata_sample), startdate - 1))
+post.period <- as.Date(c(startdate, end(webdata_sample)))
+impact      <- CausalImpact(webdata_sample, pre.period, post.period)
+plot(impact)
+
+```
+
+The success story here isn't told by a large increase in Organic Visits; organic traffic only increases slightly after *Program P* is activated. Instead, Organic Visits **holds strong even with a large increase in Paid Search spend, which many times cannibalizes organic traffic**. Sometimes when Paid Search spend is increased substantially, part of the visiting population who would have found the site organically will instead use a Paid Search link, causing a decrease in organic traffic.
+
+This website is a perfect example of why Causal Impact is useful. Simply looking at whether there is an increase in organic traffic does not always tell the whole story.
+
+# Website 4: livelyDuck.com
+
+```{r filterD, echo = TRUE, warning = FALSE, message = FALSE}
+
+acctname_sample <- "livelyDuck"
+webdata_sample  <- webdata %>%
+  filter(accountName == acctname_sample)
+startdate <- startdates$startDate[startdates$accountName == acctname_sample]
+
+```
+
+```{r visD, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10}
+
+ggplot(webdata_sample, aes(x = weekEnding)) +
+  geom_line(aes(y = paidSearchCost, col = " Paid Search Spend"), size = .75) +
+  geom_line(aes(y = displayCost, col = "Display Spend"), size = .75) +
+  geom_line(aes(y = premiumDisplayCost, col = "Premium Display Spend"), size = .75) +
+  geom_line(aes(y = remarketingCost, col = "Remarketing Spend"), size = .75) +
+  geom_line(aes(y = organicVisits, col = " Organic Visits"), size = 1.5) +
+  geom_vline(xintercept = as.numeric(startdate), linetype = 4, col = "gray25") +
+  theme_bw() +
+  labs(x = "Date", 
+       y = "Quantity (number of visits or $)", 
+       title = paste0("Web data for ", acctname_sample, ".com")) +
+  scale_color_manual(name = "Values", 
+                     values = c(" Organic Visits"       = "black",
+                                " Paid Search Spend"    = "forestgreen",
+                                "Display Spend"         = "orange1",
+                                "Premium Display Spend" = "orange3",
+                                "Remarketing Spend"     = "orange4"))
+
+```
+
+```{r causalD, echo = TRUE, warning = FALSE, message = FALSE, fig.width = 8}
+
+webdata_sample <- zoo(x = webdata_sample[ , c("organicVisits", "paidSearchCost", "displayCost",
+                                              "premiumDisplayCost", "remarketingCost")],
+                      order.by = webdata_sample[ , "weekEnding"])
+pre.period  <- as.Date(c(start(webdata_sample), startdate - 1))
+post.period <- as.Date(c(startdate, end(webdata_sample)))
+impact      <- CausalImpact(webdata_sample, pre.period, post.period)
+plot(impact)
+
+```
+
+This is an example of a website where *Program P* had waning impact. The *Program P* intervention caused organic traffic to increase for the first few months, but now that it has been activated for a while the effects are diminishing. In fact, the organic traffic levels are now at pre-intervention levels.
+
+# Conclusion
+
+CausalImpact is easy to use, provides great visualizations that can be easily explained to non-technical stakeholders, and can be manually adjusted if flexibility is desired. This package successfully simplifies the process of inferring causal effects in a way that any proficient R user can utilize. It is a great example of a statistical package that was made to be shared on this open source platform.
+
